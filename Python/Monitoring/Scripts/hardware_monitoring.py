@@ -15,1344 +15,618 @@
 ######################
 
 import sys
-import os
-import re
+import argparse
 import json
 import csv
-import argparse
-import glob
-from datetime import datetime
 from collections import OrderedDict
-import subprocess
+import re
+import os
 
-#############
-# CONSTANTS #
-#############
+# Define ANSI color codes for styled terminal output
+class Colors:
+    HEADER = '\033[95m'     # Purple color for headers
+    OKBLUE = '\033[94m'     # Blue color for information
+    OKGREEN = '\033[92m'    # Green color for success
+    WARNING = '\033[93m'    # Yellow color for warnings
+    FAIL = '\033[91m'       # Red color for errors
+    ENDC = '\033[0m'        # Reset color
+    BOLD = '\033[1m'        # Bold text
 
-VERSION = "0.0.1"
+def color_text(text, color):
+    """Apply specified ANSI color to text for terminal output"""
+    return color + str(text) + Colors.ENDC
 
-# Severity levels
-SEVERITY_CRITICAL = "CRITICAL"
-SEVERITY_WARN = "WARN"
-SEVERITY_INFO = "INFO"
+def print_main_header(title):
+    """Display main header with fancy formatting"""
+    border = '=' * 80
+    print(color_text('\n' + border, Colors.HEADER))
+    print(color_text(title.center(80), Colors.HEADER))
+    print(color_text(border + '\n', Colors.HEADER))
 
-# Terminal colors
-COLOR_RESET = '\033[0m'
-COLOR_RED = '\033[91m'
-COLOR_YELLOW = '\033[93m'
-COLOR_GREEN = '\033[92m'
-COLOR_BLUE = '\033[94m'
-COLOR_CYAN = '\033[96m'
-COLOR_BOLD = '\033[1m'
-COLOR_MAGENTA = '\033[95m'
-COLOR_WHITE = '\033[97m'
+def print_section_header(title):
+    """Display a section header with hashes"""
+    border = '#' * 80
+    padding = (80 - len(title) - 8) // 2
+    centered_title = '### ' + (' ' * padding) + title + (' ' * padding) + ' ###'
+    print(color_text(border, Colors.HEADER))
+    print(color_text(centered_title, Colors.HEADER))
+    print(color_text(border + '\n', Colors.HEADER))
 
-# Verbosity levels
-VERBOSITY_BASIC = 1
-VERBOSITY_DETAILED = 2
-VERBOSITY_FULL = 3
+def strip_ansi(text):
+    """Remove ANSI color codes from text for width calculation"""
+    ansi_escape = re.compile(r'\033\[[0-9;]*m')
+    return ansi_escape.sub('', str(text))
 
-#####################
-# UTILITY FUNCTIONS #
-#####################
-
-def clean_ansi_codes(text):
-    """Remove ANSI color codes from text for accurate length calculation."""
-    return re.sub(r'\033\[[0-9;]*m', '', str(text))
-
-def colorize(text, color):
-    """Apply color to text for terminal output."""
-    return f"{color}{text}{COLOR_RESET}"
-
-def read_file_safe(path):
-    """Safely read file content and return as string."""
-    try:
-        with open(path, 'r') as f:
-            return f.read().strip()
-    except Exception:
-        return None
-
-def read_lines_safe(path):
-    """Safely read file lines and return as list."""
-    try:
-        with open(path, 'r') as f:
-            return [line.strip() for line in f.readlines()]
-    except Exception:
-        return []
-
-def bytes_to_human(bytes_value):
-    """Convert bytes to human-readable format."""
-    if bytes_value == 0:
-        return "0 B"
-    
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB', 'PB']:
-        if bytes_value < 1024.0:
-            return f"{bytes_value:.2f} {unit}"
-        bytes_value /= 1024.0
-    return f"{bytes_value:.2f} EB"
-
-def get_severity_color(severity):
-    """Get color for severity level."""
-    severity_colors = {
-        SEVERITY_CRITICAL: COLOR_RED,
-        SEVERITY_WARN: COLOR_YELLOW,
-        SEVERITY_INFO: COLOR_GREEN
-    }
-    return severity_colors.get(severity, COLOR_GREEN)
-
-def truncate_text(text, max_length):
-    """Truncate text to maximum length and add ellipsis if needed."""
-    text_clean = clean_ansi_codes(str(text))
-    if len(text_clean) <= max_length:
-        return str(text)
-    return str(text)[:max_length-3] + "..."
-
-def run_command_safe(command):
-    """Safely run a shell command and return its output if successful."""
-    try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            return result.stdout.strip()
-        return None
-    except Exception:
-        return None
-
-#####################
-# DISPLAY FUNCTIONS #
-#####################
-
-def print_main_header():
-    """Print main header with borders."""
-    title1 = "hardware_monitor.py - A Universal Linux Hardware Information Tool"
-    title2 = f"Version {VERSION}"
-    width = 70
-    border = '#' * width
-    
-    print(f"\n{COLOR_CYAN}{border}{COLOR_RESET}")
-    
-    # Calculate padding for title1
-    padding1 = width - 2 - len(title1)
-    left_pad1 = padding1 // 2
-    right_pad1 = padding1 - left_pad1
-    line1 = '#' + ' ' * left_pad1 + title1 + ' ' * right_pad1 + '#'
-    print(f"{COLOR_CYAN}{line1}{COLOR_RESET}")
-    
-    # Calculate padding for title2
-    padding2 = width - 2 - len(title2)
-    left_pad2 = padding2 // 2
-    right_pad2 = padding2 - left_pad2
-    line2 = '#' + ' ' * left_pad2 + title2 + ' ' * right_pad2 + '#'
-    print(f"{COLOR_CYAN}{line2}{COLOR_RESET}")
-    
-    print(f"{COLOR_CYAN}{border}{COLOR_RESET}")
-
-def print_main_footer():
-    """Print main footer with borders."""
-    title = "Hardware monitoring completed"
-    width = 70
-    border = '#' * width
-    
-    print(f"\n{COLOR_GREEN}{border}{COLOR_RESET}")
-    
-    # Calculate padding for title
-    padding = width - 2 - len(title)
-    left_pad = padding // 2
-    right_pad = padding - left_pad
-    line = '#' + ' ' * left_pad + title + ' ' * right_pad + '#'
-    print(f"{COLOR_GREEN}{line}{COLOR_RESET}")
-    
-    print(f"{COLOR_GREEN}{border}{COLOR_RESET}\n")
-
-def print_section_header(title, color=COLOR_CYAN):
-    """Print formatted section header with borders."""
-    title_clean = clean_ansi_codes(title)
-    width = max(60, len(title_clean) + 4)
-    border = '+' + '-' * (width - 2) + '+'
-    
-    print(f"\n{color}{border}{COLOR_RESET}")
-    print(f"{color}|{COLOR_BOLD} {title.center(width - 4)} {COLOR_RESET}{color}|{COLOR_RESET}")
-    print(f"{color}{border}{COLOR_RESET}")
-
-def print_formatted_table(headers, data, header_color=COLOR_BLUE, 
-                         data_colors=None, max_col_width=50):
-    """Print formatted table with headers and data."""
+def print_table(data):
+    """Print a beautifully formatted table with separators between rows"""
     if not data:
-        print(colorize("No data available", COLOR_YELLOW))
+        print(color_text("No data available", Colors.WARNING))
         return
 
-    # Calculate column widths
-    col_widths = []
-    for i, header in enumerate(headers):
-        max_width = len(clean_ansi_codes(header))
-        for row in data:
-            if i < len(row):
-                cell_clean = clean_ansi_codes(str(row[i]))
-                cell_width = min(len(cell_clean), max_col_width)
-                max_width = max(max_width, cell_width)
-        col_widths.append(max_width + 2)
+    # Fixed column widths
+    col1_width = 28
+    col2_width = 48
+    
+    # Top border
+    top_border = '+' + '=' * col1_width + '+' + '=' * col2_width + '+'
+    print(color_text(top_border, Colors.OKBLUE))
 
-    # Create borders
-    border = '+' + '+'.join(['-' * w for w in col_widths]) + '+'
-    
-    # Print header
-    print(colorize(border, header_color))
-    header_row = '|'
-    for i, header in enumerate(headers):
-        header_text = str(header)
-        header_clean = clean_ansi_codes(header_text)
-        padding = col_widths[i] - len(header_clean)
-        left_pad = padding // 2
-        right_pad = padding - left_pad
-        centered_header = ' ' * left_pad + header_text + ' ' * right_pad
-        header_row += colorize(centered_header, header_color) + '|'
-    print(header_row)
-    print(colorize(border, header_color))
+    # Data rows with separators
+    for idx, row in enumerate(data):
+        if len(row) >= 2:
+            col1_text = str(row[0])
+            col2_text = str(row[1])
+            
+            # Strip ANSI codes for width calculation
+            col1_clean = strip_ansi(col1_text)
+            col2_clean = strip_ansi(col2_text)
+            
+            # Truncate if too long with ellipsis
+            if len(col1_clean) > col1_width - 3:
+                col1_clean = col1_clean[:col1_width - 6] + '...'
+            if len(col2_clean) > col2_width - 3:
+                col2_clean = col2_clean[:col2_width - 6] + '...'
+            
+            # Pad to width
+            col1_padded = col1_clean.ljust(col1_width - 2)
+            col2_padded = col2_clean.ljust(col2_width - 2)
+            
+            # Print row
+            print('| ' + col1_padded + ' | ' + col2_padded + ' |')
+            
+            # Add separator after each row (except the last one)
+            if idx < len(data) - 1:
+                separator = '+' + '-' * col1_width + '+' + '-' * col2_width + '+'
+                print(color_text(separator, Colors.OKBLUE))
 
-    # Print data rows
-    for row_idx, row in enumerate(data):
-        row_str = '|'
-        for i in range(len(headers)):
-            if i < len(row):
-                cell = truncate_text(row[i], max_col_width)
-                cell_clean = clean_ansi_codes(cell)
-                padding = col_widths[i] - len(cell_clean)
-                left_pad = padding // 2
-                right_pad = padding - left_pad
-                
-                cell_color = (data_colors[row_idx][i] 
-                            if data_colors and row_idx < len(data_colors) 
-                            and i < len(data_colors[row_idx]) 
-                            else COLOR_WHITE)
-                
-                padded_cell = ' ' * left_pad + cell + ' ' * right_pad
-                row_str += colorize(padded_cell, cell_color) + '|'
-            else:
-                row_str += ' ' * col_widths[i] + '|'
-        print(row_str)
-        if row_idx < len(data) - 1:
-            print(colorize(border, header_color))
+    # Bottom border
+    bottom_border = '+' + '=' * col1_width + '+' + '=' * col2_width + '+'
+    print(color_text(bottom_border + '\n', Colors.OKBLUE))
 
-    # Print closing border
-    print(colorize(border, header_color))
-    print()
+def read_file(filepath):
+    """Read file safely and return content"""
+    try:
+        with open(filepath, 'r') as f:
+            return f.read().strip()
+    except:
+        return None
 
-def print_info_table(category_data, category_name, verbosity):
-    """Print information in table format with status."""
-    if not category_data:
-        print(colorize("No data available", COLOR_YELLOW))
-        return
-    
-    headers = ["Metric", "Value", "Status"]
-    data = []
-    colors = []
-    
-    for key, value in category_data.items():
-        # Format value based on type
-        if isinstance(value, list):
-            if verbosity >= VERBOSITY_FULL:
-                value_str = ', '.join(str(item) for item in value[:3])
-                if len(value) > 3:
-                    value_str += f" ... (+{len(value)-3} more)"
-            else:
-                value_str = f"{len(value)} items"
-        elif isinstance(value, dict):
-            value_str = (json.dumps(value) if verbosity >= VERBOSITY_FULL 
-                        else f"{len(value)} keys")
-        else:
-            value_str = str(value)
-        
-        # Determine status and color
-        status, status_color = determine_status(key, value)
-        
-        data.append([key, value_str, status])
-        colors.append([COLOR_BLUE, COLOR_WHITE, status_color])
-    
-    print_formatted_table(headers, data, COLOR_CYAN, colors, max_col_width=40)
-
-def determine_status(key, value):
-    """Determine status and color based on key and value."""
-    status = "OK"
-    status_color = COLOR_GREEN
-    value_lower = str(value).lower()
-    key_lower = key.lower()
-    
-    # Check for usage percentage
-    if "usage" in key_lower or "percentage" in key_lower:
-        try:
-            usage_value = float(str(value).strip('%'))
-            if usage_value > 90:
-                status, status_color = "CRITICAL", COLOR_RED
-            elif usage_value > 80:
-                status, status_color = "WARNING", COLOR_YELLOW
-        except (ValueError, AttributeError):
-            pass
-    
-    # Check for temperature
-    elif "temperature" in key_lower:
-        try:
-            temp_value = float(str(value).strip('°C'))
-            if temp_value > 80:
-                status, status_color = "CRITICAL", COLOR_RED
-            elif temp_value > 70:
-                status, status_color = "WARNING", COLOR_YELLOW
-        except (ValueError, AttributeError):
-            pass
-    
-    # Check for error indicators
-    elif ("error" in key_lower or "failed" in key_lower or 
-          "critical" in value_lower):
-        status, status_color = "CRITICAL", COLOR_RED
-    
-    elif "warning" in value_lower or "warn" in key_lower:
-        status, status_color = "WARNING", COLOR_YELLOW
-    
-    elif "unknown" in value_lower or "n/a" in value_lower:
-        status, status_color = "UNKNOWN", COLOR_YELLOW
-    
-    return status, status_color
-
-########################
-# HARDWARE INFORMATION #
-########################
-
-class HardwareInfo:
-    """Base class for hardware information storage."""
-    
-    def __init__(self):
-        self.data = OrderedDict()
-        self.severity = SEVERITY_INFO
-    
-    def to_dict(self):
-        """Convert to dictionary for export."""
-        return {
-            'category': self.__class__.__name__,
-            'severity': self.severity,
-            'data': self.data
-        }
-
-#####################
-# HARDWARE CRAWLERS #
-#####################
-
-def collect_os_information(verbosity):
-    """Collect operating system and kernel information."""
-    info = HardwareInfo()
-    
-    # Basic OS information
-    uname = os.uname()
-    info.data['Hostname'] = uname.nodename
-    info.data['Kernel Name'] = uname.sysname
-    info.data['Kernel Release'] = uname.release
-    info.data['Kernel Version'] = uname.version
-    info.data['Architecture'] = uname.machine
-    
-    # Distribution information
-    if os.path.exists('/etc/os-release'):
-        distro_info = {}
-        for line in read_lines_safe('/etc/os-release'):
-            if '=' in line:
-                key, value = line.split('=', 1)
-                distro_info[key] = value.strip('"')
-        
-        info.data['Distribution'] = distro_info.get('PRETTY_NAME', 
-                                                     distro_info.get('NAME', 'Unknown'))
-        info.data['Distribution ID'] = distro_info.get('ID', 'unknown')
-        info.data['Distribution Version'] = distro_info.get('VERSION_ID', 'N/A')
-    
-    if verbosity >= VERBOSITY_DETAILED:
-        add_os_detailed_info(info)
-    
-    if verbosity >= VERBOSITY_FULL:
-        add_os_full_info(info)
-    
-    return info
-
-def add_os_detailed_info(info):
-    """Add detailed OS information."""
-    # Uptime
-    uptime_data = read_file_safe('/proc/uptime')
-    if uptime_data:
-        uptime_seconds = float(uptime_data.split()[0])
-        days = int(uptime_seconds // 86400)
-        hours = int((uptime_seconds % 86400) // 3600)
-        minutes = int((uptime_seconds % 3600) // 60)
-        info.data['Uptime'] = f"{days}d {hours}h {minutes}m"
-    
-    # Load average
-    load_avg = read_file_safe('/proc/loadavg')
-    if load_avg:
-        loads = load_avg.split()[:3]
-        info.data['Load Average'] = f"{loads[0]} (1min) / {loads[1]} (5min) / {loads[2]} (15min)"
-
-def add_os_full_info(info):
-    """Add full OS information."""
-    # Kernel command line
-    cmdline = read_file_safe('/proc/cmdline')
-    if cmdline:
-        info.data['Kernel Parameters'] = (cmdline[:100] + "..." 
-                                          if len(cmdline) > 100 else cmdline)
-    
-    # Kernel modules count
-    if os.path.exists('/proc/modules'):
-        modules = read_lines_safe('/proc/modules')
-        info.data['Loaded Modules'] = len(modules)
-
-def collect_cpu_information(verbosity):
-    """Collect CPU hardware information."""
-    info = HardwareInfo()
-    
-    cpuinfo = read_lines_safe('/proc/cpuinfo')
+def read_proc_cpuinfo():
+    """Parse /proc/cpuinfo"""
+    data = {}
+    cpuinfo = read_file('/proc/cpuinfo')
     if not cpuinfo:
-        info.severity = SEVERITY_CRITICAL
-        info.data['Status'] = "Unable to read CPU information"
-        return info
+        return data
     
-    cpu_data = parse_cpuinfo(cpuinfo)
-    
-    # Basic CPU information
-    info.data['Model'] = cpu_data.get('model_name', 'Unknown')
-    info.data['Vendor'] = cpu_data.get('vendor_id', 'Unknown')
-    info.data['Logical Processors'] = cpu_data['processor_count']
-    info.data['Physical CPUs'] = len(cpu_data['physical_ids']) or 1
-    info.data['Cores per CPU'] = len(cpu_data['core_ids']) or cpu_data['processor_count']
-    
-    if verbosity >= VERBOSITY_DETAILED:
-        add_cpu_detailed_info(info, cpu_data)
-    
-    if verbosity >= VERBOSITY_FULL:
-        add_cpu_full_info(info, cpu_data)
-    
-    # Optional: Use lscpu if available for more details
-    if verbosity >= VERBOSITY_DETAILED and run_command_safe('command -v lscpu'):
-        lscpu_output = run_command_safe('lscpu')
-        if lscpu_output:
-            info.data['LSCPU Details'] = lscpu_output[:200] + "..." if len(lscpu_output) > 200 else lscpu_output
-
-    # Optional: dmidecode -t processor
-    if verbosity >= VERBOSITY_FULL and run_command_safe('command -v dmidecode'):
-        dmidecode_proc = run_command_safe('dmidecode -t processor')
-        if dmidecode_proc:
-            info.data['DMI Processor Details'] = dmidecode_proc[:200] + "..." if len(dmidecode_proc) > 200 else dmidecode_proc
-    
-    return info
-
-def parse_cpuinfo(cpuinfo):
-    """Parse /proc/cpuinfo data."""
-    cpu_data = {
-        'processor_count': 0,
-        'physical_ids': set(),
-        'core_ids': set()
-    }
-    
-    for line in cpuinfo:
-        if ':' not in line:
-            continue
-        key, value = line.split(':', 1)
-        key = key.strip()
-        value = value.strip()
-        
-        if key == 'processor':
-            cpu_data['processor_count'] += 1
-        elif key == 'model name' and 'model_name' not in cpu_data:
-            cpu_data['model_name'] = value
-        elif key == 'vendor_id' and 'vendor_id' not in cpu_data:
-            cpu_data['vendor_id'] = value
-        elif key == 'cpu MHz' and 'cpu_mhz' not in cpu_data:
-            cpu_data['cpu_mhz'] = value
-        elif key == 'cache size' and 'cache_size' not in cpu_data:
-            cpu_data['cache_size'] = value
-        elif key == 'physical id':
-            cpu_data['physical_ids'].add(value)
-        elif key == 'core id':
-            cpu_data['core_ids'].add(value)
-        elif key == 'flags' and 'flags' not in cpu_data:
-            cpu_data['flags'] = value.split()
-        elif key == 'bogomips' and 'bogomips' not in cpu_data:
-            cpu_data['bogomips'] = value
-    
-    return cpu_data
-
-def add_cpu_detailed_info(info, cpu_data):
-    """Add detailed CPU information."""
-    info.data['Current Frequency'] = f"{cpu_data.get('cpu_mhz', 'N/A')} MHz"
-    info.data['Cache Size'] = cpu_data.get('cache_size', 'N/A')
-    info.data['BogoMIPS'] = cpu_data.get('bogomips', 'N/A')
-
-def add_cpu_full_info(info, cpu_data):
-    """Add full CPU information."""
-    # CPU frequency scaling
-    freq_paths = glob.glob('/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq')
-    if freq_paths:
-        frequencies = []
-        for path in freq_paths[:4]:
-            freq = read_file_safe(path)
-            if freq:
-                frequencies.append(int(freq) / 1000)
-        
-        if frequencies:
-            freq_display = ', '.join(f'{f:.0f}MHz' for f in frequencies[:3])
-            if len(frequencies) > 3:
-                freq_display += "..."
-            info.data['Core Frequencies'] = f"{len(frequencies)} cores: {freq_display}"
-    
-    # CPU features/flags
-    flags = cpu_data.get('flags')
-    if flags:
-        important_flags = [f for f in flags if f in ['vmx', 'svm', 'aes', 'avx', 'avx2', 
-                                                     'sse4_1', 'sse4_2', 'lm']]
-        if important_flags:
-            flags_str = ', '.join(important_flags[:5])
-            if len(important_flags) > 5:
-                flags_str += "..."
-            info.data['Notable Features'] = flags_str
-
-def collect_memory_information(verbosity):
-    """Collect RAM and memory hardware information."""
-    info = HardwareInfo()
-    
-    meminfo = read_lines_safe('/proc/meminfo')
-    if not meminfo:
-        info.severity = SEVERITY_CRITICAL
-        info.data['Status'] = "Unable to read memory information"
-        return info
-    
-    mem_data = parse_meminfo(meminfo)
-    
-    # Calculate memory usage
-    total_mem = mem_data.get('MemTotal', 0)
-    available_mem = mem_data.get('MemAvailable', mem_data.get('MemFree', 0))
-    used_mem = total_mem - available_mem
-    
-    info.data['Total Memory'] = bytes_to_human(total_mem)
-    info.data['Available Memory'] = bytes_to_human(available_mem)
-    info.data['Used Memory'] = bytes_to_human(used_mem)
-    
-    usage_percent = (used_mem / total_mem * 100) if total_mem > 0 else 0
-    info.data['Usage Percentage'] = f"{usage_percent:.1f}%"
-    
-    # Set severity based on usage
-    if usage_percent > 90:
-        info.severity = SEVERITY_CRITICAL
-    elif usage_percent > 80:
-        info.severity = SEVERITY_WARN
-    
-    if verbosity >= VERBOSITY_DETAILED:
-        add_memory_detailed_info(info, mem_data)
-    
-    if verbosity >= VERBOSITY_FULL:
-        add_memory_full_info(info, mem_data)
-    
-    # Optional: Physical modules via dmidecode if available
-    if verbosity >= VERBOSITY_FULL and run_command_safe('command -v dmidecode'):
-        dmidecode_mem = run_command_safe('dmidecode -t memory')
-        if dmidecode_mem:
-            info.data['Physical Modules (DMI)'] = dmidecode_mem[:200] + "..." if len(dmidecode_mem) > 200 else dmidecode_mem
-    
-    return info
-
-def parse_meminfo(meminfo):
-    """Parse /proc/meminfo data."""
-    mem_data = {}
-    for line in meminfo:
+    for line in cpuinfo.split('\n'):
         if ':' in line:
             key, value = line.split(':', 1)
-            value_parts = value.strip().split()
-            if value_parts:
-                try:
-                    # Convert kB to bytes
-                    mem_data[key.strip()] = int(value_parts[0]) * 1024
-                except ValueError:
-                    mem_data[key.strip()] = value.strip()
-    return mem_data
+            key = key.strip()
+            value = value.strip()
+            if key not in data:
+                data[key] = value
+    
+    return data
 
-def add_memory_detailed_info(info, mem_data):
-    """Add detailed memory information."""
-    swap_total = mem_data.get('SwapTotal', 0)
-    swap_free = mem_data.get('SwapFree', 0)
-    swap_used = swap_total - swap_free
+def get_cpu_components(verbosity):
+    """Retrieve CPU hardware components from /proc/cpuinfo and /sys"""
+    data = OrderedDict()
     
-    info.data['Swap Total'] = bytes_to_human(swap_total)
-    info.data['Swap Used'] = bytes_to_human(swap_used)
-    info.data['Swap Free'] = bytes_to_human(swap_free)
+    try:
+        cpuinfo = read_proc_cpuinfo()
+        if not cpuinfo:
+            data['Status'] = 'N/A - /proc/cpuinfo not readable'
+            return data
+        
+        # LEVEL 1: Basic CPU info
+        processor_count = len([l for l in read_file('/proc/cpuinfo').split('\n') if l.startswith('processor')])
+        data['Physical CPU Count'] = str(processor_count)
+        
+        data['CPU Model'] = cpuinfo.get('model name', 'N/A')
+        data['CPU Vendor'] = cpuinfo.get('vendor_id', 'N/A')
+        data['Total CPU Cores'] = cpuinfo.get('cpu cores', 'N/A')
+        
+        if verbosity >= 2:
+            # LEVEL 2: Extended CPU info
+            data['CPU Stepping'] = cpuinfo.get('stepping', 'N/A')
+            data['CPU Family'] = cpuinfo.get('cpu family', 'N/A')
+            data['CPU Model Number'] = cpuinfo.get('model', 'N/A')
+            data['L3 Cache Size'] = cpuinfo.get('cache size', 'N/A')
+            data['Cores Per Socket'] = cpuinfo.get('cpu cores', 'N/A')
+            data['Threads (Siblings)'] = cpuinfo.get('siblings', 'N/A')
+            
+            # Read frequency from /sys
+            freq_file = '/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq'
+            if os.path.exists(freq_file):
+                freq_khz = read_file(freq_file)
+                if freq_khz:
+                    freq_mhz = str(int(freq_khz) // 1000)
+                    data['Current Frequency (MHz)'] = freq_mhz
+            
+            max_freq_file = '/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq'
+            if os.path.exists(max_freq_file):
+                max_freq = read_file(max_freq_file)
+                if max_freq:
+                    data['Max Frequency (MHz)'] = str(int(max_freq) // 1000)
+            
+            min_freq_file = '/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq'
+            if os.path.exists(min_freq_file):
+                min_freq = read_file(min_freq_file)
+                if min_freq:
+                    data['Min Frequency (MHz)'] = str(int(min_freq) // 1000)
+        
+        if verbosity >= 3:
+            # LEVEL 3: Deep CPU analysis
+            flags = cpuinfo.get('flags', '')
+            if flags:
+                flags_list = flags.split()
+                data['CPU Extensions (Count)'] = str(len(flags_list))
+                data['All CPU Flags'] = flags[:100] + ('...' if len(flags) > 100 else '')
+                
+                important_flags = ['vmx', 'svm', 'avx', 'avx2', 'sse4_2', 'aes', 'rdrand']
+                found_flags = [f for f in important_flags if f in flags_list]
+                data['Important Extensions'] = ', '.join(found_flags) if found_flags else 'None'
+            
+            data['Microcode'] = cpuinfo.get('microcode', 'N/A')
+            data['APIC ID'] = cpuinfo.get('apicid', 'N/A')
+            data['Physical ID'] = cpuinfo.get('physical id', 'N/A')
+            data['Core ID'] = cpuinfo.get('core id', 'N/A')
+            data['FPU Present'] = cpuinfo.get('fpu', 'N/A')
+            
+            bugs_file = '/proc/cpuinfo'
+            cpuinfo_full = read_file(bugs_file)
+            if cpuinfo_full and 'bugs' in cpuinfo_full:
+                for line in cpuinfo_full.split('\n'):
+                    if line.startswith('bugs'):
+                        data['Known CPU Bugs'] = line.split(':', 1)[1].strip()[:80]
+                        break
     
-    if swap_total > 0:
-        swap_usage = (swap_used / swap_total * 100)
-        info.data['Swap Usage'] = f"{swap_usage:.1f}%"
+    except Exception as e:
+        data['Error'] = str(e)
+    
+    return data
 
-def add_memory_full_info(info, mem_data):
-    """Add full memory information."""
-    info.data['Active Memory'] = bytes_to_human(mem_data.get('Active', 0))
-    info.data['Inactive Memory'] = bytes_to_human(mem_data.get('Inactive', 0))
-    info.data['Dirty Pages'] = bytes_to_human(mem_data.get('Dirty', 0))
-    info.data['Writeback'] = bytes_to_human(mem_data.get('Writeback', 0))
-    info.data['Slab'] = bytes_to_human(mem_data.get('Slab', 0))
+def get_ram_components(verbosity):
+    """Retrieve RAM information from /proc/meminfo and /sys"""
+    data = OrderedDict()
     
-    # Huge pages
-    hugepages_total = mem_data.get('HugePages_Total', 0)
-    if isinstance(hugepages_total, int) and hugepages_total > 0:
-        info.data['HugePages Total'] = hugepages_total
-        info.data['HugePages Free'] = mem_data.get('HugePages_Free', 0)
+    try:
+        meminfo = read_file('/proc/meminfo')
+        if not meminfo:
+            data['Status'] = 'N/A - /proc/meminfo not readable'
+            return data
+        
+        # LEVEL 1: Basic RAM
+        for line in meminfo.split('\n'):
+            if line.startswith('MemTotal:'):
+                kb = int(line.split()[1])
+                gb = kb // (1024 * 1024)
+                data['Total RAM'] = str(gb) + ' GB'
+                break
+        
+        # Try to read from DMI if available
+        dmi_path = '/sys/devices/virtual/dmi/id/'
+        if os.path.exists(dmi_path):
+            if verbosity >= 2:
+                # LEVEL 2: Extended info from /sys/devices/virtual/dmi/id/
+                board_vendor = read_file(dmi_path + 'board_vendor')
+                if board_vendor:
+                    data['Board Vendor'] = board_vendor
+                
+                board_name = read_file(dmi_path + 'board_name')
+                if board_name:
+                    data['Board Name'] = board_name
+            
+            if verbosity >= 3:
+                # LEVEL 3: Deep info
+                board_serial = read_file(dmi_path + 'board_serial')
+                if board_serial:
+                    data['Board Serial'] = board_serial
+        
+        # Additional memory info
+        for line in meminfo.split('\n'):
+            if line.startswith('MemAvailable:'):
+                kb = int(line.split()[1])
+                gb = kb // (1024 * 1024)
+                data['Available RAM'] = str(gb) + ' GB'
+            elif line.startswith('Cached:'):
+                kb = int(line.split()[1])
+                mb = kb // 1024
+                data['Cached Memory'] = str(mb) + ' MB'
+    
+    except Exception as e:
+        data['Error'] = str(e)
+    
+    return data
 
-def collect_motherboard_information(verbosity):
-    """Collect motherboard and system board information."""
-    info = HardwareInfo()
-    dmi_base = '/sys/class/dmi/id'
+def get_motherboard_info(verbosity):
+    """Retrieve motherboard information from /sys/devices/virtual/dmi/id/"""
+    data = OrderedDict()
     
-    if not os.path.exists(dmi_base):
-        info.severity = SEVERITY_WARN
-        info.data['Status'] = "DMI information not available"
-        return info
+    try:
+        dmi_path = '/sys/devices/virtual/dmi/id/'
+        
+        if not os.path.exists(dmi_path):
+            data['Status'] = 'N/A - DMI not available'
+            return data
+        
+        # LEVEL 1: Basic info
+        sys_manufacturer = read_file(dmi_path + 'sys_vendor')
+        if sys_manufacturer:
+            data['System Manufacturer'] = sys_manufacturer
+        
+        sys_product = read_file(dmi_path + 'product_name')
+        if sys_product:
+            data['System Product'] = sys_product
+        
+        board_vendor = read_file(dmi_path + 'board_vendor')
+        if board_vendor:
+            data['Motherboard Vendor'] = board_vendor
+        
+        board_name = read_file(dmi_path + 'board_name')
+        if board_name:
+            data['Motherboard Model'] = board_name
+        
+        if verbosity >= 2:
+            # LEVEL 2: Extended info
+            bios_vendor = read_file(dmi_path + 'bios_vendor')
+            if bios_vendor:
+                data['BIOS Vendor'] = bios_vendor
+            
+            bios_version = read_file(dmi_path + 'bios_version')
+            if bios_version:
+                data['BIOS Version'] = bios_version
+            
+            bios_date = read_file(dmi_path + 'bios_date')
+            if bios_date:
+                data['BIOS Date'] = bios_date
+            
+            chassis_type = read_file(dmi_path + 'chassis_type')
+            if chassis_type:
+                data['Chassis Type'] = chassis_type
+        
+        if verbosity >= 3:
+            # LEVEL 3: Deep info
+            board_serial = read_file(dmi_path + 'board_serial')
+            if board_serial:
+                data['Board Serial'] = board_serial
+            
+            sys_serial = read_file(dmi_path + 'product_serial')
+            if sys_serial:
+                data['System Serial'] = sys_serial
+            
+            chassis_serial = read_file(dmi_path + 'chassis_serial')
+            if chassis_serial:
+                data['Chassis Serial'] = chassis_serial
+            
+            chassis_asset = read_file(dmi_path + 'chassis_asset_tag')
+            if chassis_asset:
+                data['Chassis Asset Tag'] = chassis_asset
     
-    # Board information
-    info.data['Board Vendor'] = read_file_safe(f'{dmi_base}/board_vendor') or 'Unknown'
-    info.data['Board Name'] = read_file_safe(f'{dmi_base}/board_name') or 'Unknown'
-    info.data['Board Version'] = read_file_safe(f'{dmi_base}/board_version') or 'Unknown'
+    except Exception as e:
+        data['Error'] = str(e)
     
-    if verbosity >= VERBOSITY_DETAILED:
-        add_motherboard_detailed_info(info, dmi_base)
-    
-    if verbosity >= VERBOSITY_FULL:
-        add_motherboard_full_info(info, dmi_base)
-    
-    # Optional: dmidecode for baseboard
-    if verbosity >= VERBOSITY_DETAILED and run_command_safe('command -v dmidecode'):
-        dmidecode_base = run_command_safe('dmidecode -t baseboard')
-        if dmidecode_base:
-            info.data['Baseboard Details (DMI)'] = dmidecode_base[:200] + "..." if len(dmidecode_base) > 200 else dmidecode_base
+    return data
 
-    # Optional: dmidecode for bios
-    if verbosity >= VERBOSITY_FULL and run_command_safe('command -v dmidecode'):
-        dmidecode_bios = run_command_safe('dmidecode -t bios')
-        if dmidecode_bios:
-            info.data['BIOS Details (DMI)'] = dmidecode_bios[:200] + "..." if len(dmidecode_bios) > 200 else dmidecode_bios
+def get_storage_components(verbosity):
+    """Retrieve storage information from /sys/block/"""
+    data = []
     
-    return info
-
-def add_motherboard_detailed_info(info, dmi_base):
-    """Add detailed motherboard information."""
-    # System information
-    info.data['System Vendor'] = read_file_safe(f'{dmi_base}/sys_vendor') or 'Unknown'
-    info.data['System Product'] = read_file_safe(f'{dmi_base}/product_name') or 'Unknown'
-    info.data['System Version'] = read_file_safe(f'{dmi_base}/product_version') or 'Unknown'
-    
-    # BIOS information
-    info.data['BIOS Vendor'] = read_file_safe(f'{dmi_base}/bios_vendor') or 'Unknown'
-    info.data['BIOS Version'] = read_file_safe(f'{dmi_base}/bios_version') or 'Unknown'
-    info.data['BIOS Date'] = read_file_safe(f'{dmi_base}/bios_date') or 'Unknown'
-
-def add_motherboard_full_info(info, dmi_base):
-    """Add full motherboard information."""
-    # Chassis information
-    info.data['Chassis Vendor'] = read_file_safe(f'{dmi_base}/chassis_vendor') or 'Unknown'
-    info.data['Chassis Type'] = read_file_safe(f'{dmi_base}/chassis_type') or 'Unknown'
-    info.data['Chassis Serial'] = read_file_safe(f'{dmi_base}/chassis_serial') or 'N/A'
-    
-    # Product serial and UUID
-    product_serial = read_file_safe(f'{dmi_base}/product_serial')
-    product_uuid = read_file_safe(f'{dmi_base}/product_uuid')
-    
-    if product_serial:
-        info.data['Product Serial'] = product_serial
-    if product_uuid:
-        info.data['Product UUID'] = product_uuid
-
-def collect_storage_information(verbosity):
-    """Collect storage devices information."""
-    info = HardwareInfo()
-    block_path = '/sys/block'
-    
-    if not os.path.exists(block_path):
-        info.severity = SEVERITY_WARN
-        info.data['Status'] = "Block device information not available"
-        return info
-    
-    devices = []
-    block_devices = os.listdir(block_path)
-    
-    for device in block_devices:
-        # Skip loop and ram devices in basic verbosity
-        if verbosity < VERBOSITY_FULL:
-            if device.startswith(('loop', 'ram')):
+    try:
+        sys_block_path = '/sys/block/'
+        
+        if not os.path.exists(sys_block_path):
+            return data
+        
+        for device in sorted(os.listdir(sys_block_path)):
+            if device.startswith('loop') or device.startswith('dm'):
                 continue
-        
-        device_info = parse_block_device(device, block_path, verbosity)
-        if device_info:
-            devices.append(device_info)
-    
-    info.data['Total Block Devices'] = len(devices)
-    
-    # Format devices for display
-    device_display = [
-        f"{d['name']} ({d.get('type', 'Unknown')}) - {d.get('size', 'Unknown size')}"
-        for d in devices
-    ]
-    
-    if len(device_display) > 5 and verbosity < VERBOSITY_FULL:
-        info.data['Devices'] = device_display[:5] + [f"... (+{len(device_display) - 5} more)"]
-    else:
-        info.data['Devices'] = device_display
-    
-    # Optional: lsblk if available
-    if verbosity >= VERBOSITY_DETAILED and run_command_safe('command -v lsblk'):
-        lsblk_output = run_command_safe('lsblk -d -o NAME,MODEL,SIZE,TYPE')
-        if lsblk_output:
-            info.data['LSBLK Summary'] = lsblk_output
-
-    # Optional: lsscsi if available
-    if verbosity >= VERBOSITY_FULL and run_command_safe('command -v lsscsi'):
-        lsscsi_output = run_command_safe('lsscsi')
-        if lsscsi_output:
-            info.data['LSSCSI Devices'] = lsscsi_output
-
-    # Optional: nvme list if available
-    if verbosity >= VERBOSITY_FULL and run_command_safe('command -v nvme'):
-        nvme_output = run_command_safe('nvme list')
-        if nvme_output:
-            info.data['NVMe Devices'] = nvme_output
-    
-    return info
-
-def parse_block_device(device, block_path, verbosity):
-    """Parse information for a single block device."""
-    device_path = os.path.join(block_path, device)
-    device_info = {'name': device}
-    
-    # Size
-    size_sectors = read_file_safe(f'{device_path}/size')
-    if size_sectors:
-        try:
-            size_bytes = int(size_sectors) * 512
-            device_info['size'] = bytes_to_human(size_bytes)
-        except ValueError:
-            pass
-    
-    # Device type
-    rotational = read_file_safe(f'{device_path}/queue/rotational')
-    device_info['type'] = "SSD" if rotational == '0' else "HDD" if rotational == '1' else "Unknown"
-    
-    if verbosity >= VERBOSITY_DETAILED:
-        model = read_file_safe(f'{device_path}/device/model')
-        vendor = read_file_safe(f'{device_path}/device/vendor')
-        if model:
-            device_info['model'] = model.strip()
-        if vendor:
-            device_info['vendor'] = vendor.strip()
-    
-    return device_info
-
-def collect_graphics_information(verbosity):
-    """Collect graphics/GPU hardware information."""
-    info = HardwareInfo()
-    gpus = []
-    
-    drm_path = '/sys/class/drm'
-    if os.path.exists(drm_path):
-        drm_cards = [d for d in os.listdir(drm_path) 
-                     if d.startswith('card') and '-' not in d]
-        
-        for card in drm_cards:
-            gpu_info = parse_gpu_device(card, drm_path, verbosity)
-            if gpu_info:
-                gpus.append(gpu_info)
-    
-    info.data['Graphics Devices'] = len(gpus)
-    
-    if gpus:
-        gpu_display = [f"{gpu.get('vendor', 'Unknown')} ({gpu.get('driver', 'N/A')})" 
-                      for gpu in gpus]
-        info.data['GPUs'] = gpu_display
-    else:
-        info.data['GPUs'] = ["No discrete GPU detected"]
-    
-    # Optional: lspci for VGA
-    if verbosity >= VERBOSITY_DETAILED and run_command_safe('command -v lspci'):
-        lspci_vga = run_command_safe('lspci | grep -i vga')
-        if lspci_vga:
-            info.data['PCI VGA Devices'] = lspci_vga
-
-    # Optional: glxinfo for OpenGL renderer
-    if verbosity >= VERBOSITY_FULL and run_command_safe('command -v glxinfo'):
-        glx_output = run_command_safe('glxinfo | grep "OpenGL renderer"')
-        if glx_output:
-            info.data['OpenGL Renderer'] = glx_output
-    
-    return info
-
-def parse_gpu_device(card, drm_path, verbosity):
-    """Parse information for a single GPU device."""
-    card_path = os.path.join(drm_path, card)
-    device_path = f'{card_path}/device'
-    
-    if not os.path.exists(device_path):
-        return None
-    
-    gpu_info = {'device': card}
-    
-    # Vendor ID
-    vendor_id = read_file_safe(f'{device_path}/vendor')
-    if vendor_id:
-        gpu_info['vendor'] = get_gpu_vendor_name(vendor_id)
-    
-    if verbosity >= VERBOSITY_DETAILED:
-        # Driver
-        driver_path = f'{device_path}/driver'
-        if os.path.islink(driver_path):
-            driver = os.path.basename(os.readlink(driver_path))
-            gpu_info['driver'] = driver
-    
-    return gpu_info
-
-def get_gpu_vendor_name(vendor_id):
-    """Get GPU vendor name from vendor ID."""
-    vendor_map = {
-        '0x8086': 'Intel',
-        '0x10de': 'NVIDIA',
-        '0x1002': 'AMD',
-        '0x1af4': 'Virtio',
-        '0x1234': 'QEMU',
-    }
-    return vendor_map.get(vendor_id, vendor_id)
-
-
-def collect_network_information(verbosity):
-    """Collect network interfaces (NIC) hardware information."""
-    info = HardwareInfo()
-    net_path = '/sys/class/net'
-    
-    if not os.path.exists(net_path):
-        info.severity = SEVERITY_WARN
-        info.data['Status'] = "Network interface information not available"
-        return info
-    
-    interfaces = []
-    net_devices = os.listdir(net_path)
-    
-    for dev in net_devices:
-        dev_path = os.path.join(net_path, dev)
-        if dev == 'lo' or (verbosity < VERBOSITY_FULL and not os.path.exists(os.path.join(dev_path, 'device'))):
-            continue
-        
-        interface_info = parse_network_device(dev, net_path, verbosity)
-        if interface_info:
-            interfaces.append(interface_info)
-    
-    info.data['Total Interfaces'] = len(interfaces)
-    
-    interface_display = [
-        f"{i['name']} ({i.get('operstate', 'Unknown')}) - {i.get('address', 'No MAC')}"
-        for i in interfaces
-    ]
-    
-    if len(interface_display) > 5 and verbosity < VERBOSITY_FULL:
-        info.data['Interfaces'] = interface_display[:5] + [f"... (+{len(interface_display) - 5} more)"]
-    else:
-        info.data['Interfaces'] = interface_display
-    
-    # Optional: lspci for Ethernet
-    if verbosity >= VERBOSITY_DETAILED and run_command_safe('command -v lspci'):
-        lspci_eth = run_command_safe('lspci | grep -i ethernet')
-        if lspci_eth:
-            info.data['PCI Ethernet Devices'] = lspci_eth
-
-    # Optional: ip link show
-    if verbosity >= VERBOSITY_DETAILED and run_command_safe('command -v ip'):
-        ip_link = run_command_safe('ip link show')
-        if ip_link:
-            info.data['IP Link Summary'] = ip_link
-    
-    return info
-
-def parse_network_device(dev, net_path, verbosity):
-    """Parse information for a single network device."""
-    dev_path = os.path.join(net_path, dev)
-    interface_info = {'name': dev}
-    
-    operstate = read_file_safe(f'{dev_path}/operstate')
-    if operstate:
-        interface_info['operstate'] = operstate
-    
-    address = read_file_safe(f'{dev_path}/address')
-    if address:
-        interface_info['address'] = address
-    
-    if verbosity >= VERBOSITY_DETAILED:
-        speed = read_file_safe(f'{dev_path}/speed')
-        if speed and speed != '-1':
-            interface_info['speed'] = f"{speed} Mb/s"
-        
-        carrier = read_file_safe(f'{dev_path}/carrier')
-        if carrier:
-            interface_info['carrier'] = "Up" if carrier == '1' else "Down"
-    
-    return interface_info
-
-def collect_power_information(verbosity):
-    """Collect power supply (PSU) information."""
-    info = HardwareInfo()
-    power_path = '/sys/class/power_supply'
-    
-    if not os.path.exists(power_path):
-        info.severity = SEVERITY_WARN
-        info.data['Status'] = "Power supply information not available"
-        return info
-    
-    supplies = []
-    power_devices = os.listdir(power_path)
-    
-    for sup in power_devices:
-        sup_info = parse_power_device(sup, power_path, verbosity)
-        if sup_info:
-            supplies.append(sup_info)
-    
-    info.data['Total Power Supplies'] = len(supplies)
-    
-    supply_display = [
-        f"{s['name']} ({s.get('type', 'Unknown')}) - {s.get('status', 'Unknown')}"
-        for s in supplies
-    ]
-    
-    info.data['Power Supplies'] = supply_display
-    
-    # Optional: dmidecode for power-supply
-    if verbosity >= VERBOSITY_FULL and run_command_safe('command -v dmidecode'):
-        dmidecode_psu = run_command_safe('dmidecode -t power-supply')
-        if dmidecode_psu:
-            info.data['Power Supply Details (DMI)'] = dmidecode_psu[:200] + "..." if len(dmidecode_psu) > 200 else dmidecode_psu
-    
-    return info
-
-def parse_power_device(sup, power_path, verbosity):
-    """Parse information for a single power supply device."""
-    sup_path = os.path.join(power_path, sup)
-    sup_info = {'name': sup}
-    
-    type_ = read_file_safe(f'{sup_path}/type')
-    if type_:
-        sup_info['type'] = type_
-    
-    if type_ == 'Battery':
-        capacity = read_file_safe(f'{sup_path}/capacity')
-        if capacity:
-            sup_info['capacity'] = f"{capacity}%"
-            sup_info['status'] = f"Capacity: {capacity}%"
-        
-        status = read_file_safe(f'{sup_path}/status')
-        if status:
-            sup_info['status'] = status
-    
-    elif type_ == 'Mains':
-        online = read_file_safe(f'{sup_path}/online')
-        if online:
-            sup_info['status'] = "Online" if online == '1' else "Offline"
-    
-    if verbosity >= VERBOSITY_DETAILED:
-        voltage = read_file_safe(f'{sup_path}/voltage_now')
-        if voltage:
-            sup_info['voltage'] = f"{int(voltage) / 1000000:.2f} V"
-    
-    return sup_info
-
-def collect_cooling_information(verbosity):
-    """Collect cooling system information."""
-    info = HardwareInfo()
-    thermal_path = '/sys/class/thermal'
-    
-    if not os.path.exists(thermal_path):
-        info.severity = SEVERITY_WARN
-        info.data['Status'] = "Cooling information not available"
-        return info
-    
-    zones = []
-    zone_dirs = [z for z in os.listdir(thermal_path) if z.startswith('thermal_zone')]
-    
-    for zone in zone_dirs:
-        zone_info = parse_thermal_zone(zone, thermal_path, verbosity)
-        if zone_info:
-            zones.append(zone_info)
-    
-    info.data['Total Thermal Zones'] = len(zones)
-    
-    zone_display = [
-        f"{z['name']} ({z.get('type', 'Unknown')}) - {z.get('temp', 'N/A')} °C"
-        for z in zones
-    ]
-    
-    info.data['Thermal Zones'] = zone_display
-    
-    # Cooling devices
-    cooling_devices = [c for c in os.listdir(thermal_path) if c.startswith('cooling_device')]
-    info.data['Cooling Devices'] = len(cooling_devices)
-    
-    if verbosity >= VERBOSITY_FULL:
-        cooling_display = []
-        for c in cooling_devices[:3]:
-            c_path = os.path.join(thermal_path, c)
-            c_type = read_file_safe(f'{c_path}/type')
-            cur_state = read_file_safe(f'{c_path}/cur_state')
-            cooling_display.append(f"{c} ({c_type}): State {cur_state}")
-        if len(cooling_devices) > 3:
-            cooling_display.append(f"... (+{len(cooling_devices) - 3} more)")
-        info.data['Cooling Device Details'] = cooling_display
-    
-    # Optional: sensors if lm-sensors installed
-    if verbosity >= VERBOSITY_DETAILED and run_command_safe('command -v sensors'):
-        sensors_output = run_command_safe('sensors')
-        if sensors_output:
-            info.data['Sensors Output'] = sensors_output[:200] + "..." if len(sensors_output) > 200 else sensors_output
-    
-    # Set severity based on temperatures
-    high_temp = False
-    for z in zones:
-        if 'temp' in z and isinstance(z['temp'], (int, float)) and z['temp'] > 80:
-            info.severity = SEVERITY_CRITICAL
-            high_temp = True
-            break
-        elif 'temp' in z and isinstance(z['temp'], (int, float)) and z['temp'] > 70:
-            info.severity = SEVERITY_WARN
-    if high_temp:
-        info.data['Temperature Status'] = "High temperatures detected"
-    
-    return info
-
-def parse_thermal_zone(zone, thermal_path, verbosity):
-    """Parse information for a single thermal zone."""
-    zone_path = os.path.join(thermal_path, zone)
-    zone_info = {'name': zone}
-    
-    type_ = read_file_safe(f'{zone_path}/type')
-    if type_:
-        zone_info['type'] = type_
-    
-    temp = read_file_safe(f'{zone_path}/temp')
-    if temp:
-        try:
-            zone_info['temp'] = float(int(temp) / 1000.0)
-        except ValueError:
-            pass
-    
-    if verbosity >= VERBOSITY_DETAILED:
-        trip_points = read_file_safe(f'{zone_path}/trip_point_0_temp')
-        if trip_points:
-            try:
-                zone_info['trip_point'] = f"{int(trip_points) / 1000:.1f} °C"
-            except ValueError:
-                pass
-    
-    return zone_info
-
-def collect_peripherals_information(verbosity):
-    """Collect peripherals information (USB, etc.)."""
-    info = HardwareInfo()
-    usb_path = '/sys/bus/usb/devices'
-    
-    if not os.path.exists(usb_path):
-        info.severity = SEVERITY_WARN
-        info.data['Status'] = "Peripherals information not available"
-        return info
-    
-    peripherals = []
-    usb_devices = [d for d in os.listdir(usb_path) if not d.startswith('usb') or ':' in d]
-    
-    for dev in usb_devices:
-        dev_info = parse_usb_device(dev, usb_path, verbosity)
-        if dev_info:
-            peripherals.append(dev_info)
-    
-    info.data['Total USB Devices'] = len(peripherals)
-    
-    peripheral_display = [
-        f"{p['name']} ({p.get('product', 'Unknown')}) - {p.get('manufacturer', 'Unknown')}"
-        for p in peripherals
-    ]
-    
-    if len(peripheral_display) > 5 and verbosity < VERBOSITY_FULL:
-        info.data['Peripherals'] = peripheral_display[:5] + [f"... (+{len(peripheral_display) - 5} more)"]
-    else:
-        info.data['Peripherals'] = peripheral_display
-    
-    # Optional: lsusb if available
-    if verbosity >= VERBOSITY_DETAILED and run_command_safe('command -v lsusb'):
-        lsusb_output = run_command_safe('lsusb')
-        if lsusb_output:
-            info.data['LSUSB Summary'] = lsusb_output
-
-    # Optional: lsusb -t
-    if verbosity >= VERBOSITY_FULL and run_command_safe('command -v lsusb'):
-        lsusb_t = run_command_safe('lsusb -t')
-        if lsusb_t:
-            info.data['LSUSB Topology'] = lsusb_t
-    
-    return info
-
-def parse_usb_device(dev, usb_path, verbosity):
-    """Parse information for a single USB device."""
-    dev_path = os.path.join(usb_path, dev)
-    dev_info = {'name': dev}
-    
-    product = read_file_safe(f'{dev_path}/product')
-    if product:
-        dev_info['product'] = product
-    
-    manufacturer = read_file_safe(f'{dev_path}/manufacturer')
-    if manufacturer:
-        dev_info['manufacturer'] = manufacturer
-    
-    if verbosity >= VERBOSITY_DETAILED:
-        serial = read_file_safe(f'{dev_path}/serial')
-        if serial:
-            dev_info['serial'] = serial
-        
-        speed = read_file_safe(f'{dev_path}/speed')
-        if speed:
-            dev_info['speed'] = f"{speed} Mb/s"
-    
-    return dev_info if 'product' in dev_info or 'manufacturer' in dev_info else None
-
-def collect_pci_information(verbosity):
-    """Collect PCI devices information."""
-    info = HardwareInfo()
-    
-    if run_command_safe('command -v lspci'):
-        lspci_basic = run_command_safe('lspci')
-        if lspci_basic:
-            info.data['PCI Devices Summary'] = lspci_basic
-        
-        if verbosity >= VERBOSITY_DETAILED:
-            lspci_v = run_command_safe('lspci -v')
-            if lspci_v:
-                info.data['PCI Detailed'] = lspci_v[:500] + "..." if len(lspci_v) > 500 else lspci_v
-        
-        if verbosity >= VERBOSITY_FULL:
-            lspci_vvv = run_command_safe('lspci -vvv')
-            if lspci_vvv:
-                info.data['PCI Full'] = lspci_vvv[:1000] + "..." if len(lspci_vvv) > 1000 else lspci_vvv
-    else:
-        info.data['Status'] = "lspci not available"
-    
-    return info
-
-####################
-# EXPORT FUNCTIONS #
-####################
-
-def export_to_json(data, filepath):
-    """Export collected data to JSON file."""
-    try:
-        with open(filepath, 'w') as f:
-            json.dump(data, f, indent=2)
-        print(f"\n{colorize('[SUCCESS]', COLOR_GREEN)} Data exported to: {colorize(filepath, COLOR_CYAN)}")
-    except Exception as e:
-        print(f"\n{colorize('[ERROR]', COLOR_RED)} Failed to export JSON: {str(e)}")
-
-def export_to_csv(data, filepath):
-    """Export collected data to CSV file."""
-    try:
-        with open(filepath, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow(['Category', 'Severity', 'Key', 'Value'])
             
-            for category, info in data.items():
-                if isinstance(info, dict):
-                    severity = info.get('severity', SEVERITY_INFO)
-                    category_name = info.get('category', category)
-                    
-                    if 'data' in info and isinstance(info['data'], dict):
-                        for key, value in info['data'].items():
-                            if isinstance(value, (list, dict)):
-                                value = json.dumps(value)
-                            writer.writerow([category_name, severity, key, str(value)])
-        
-        print(f"\n{colorize('[SUCCESS]', COLOR_GREEN)} Data exported to: {colorize(filepath, COLOR_CYAN)}")
-    except Exception as e:
-        print(f"\n{colorize('[ERROR]', COLOR_RED)} Failed to export CSV: {str(e)}")
-
-def export_to_log(data, filepath):
-    """Export collected data to LOG file."""
-    try:
-        with open(filepath, 'w') as f:
-            f.write("=" * 70 + "\n")
-            f.write("HARDWARE MONITOR - SYSTEM REPORT\n")
-            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write("=" * 70 + "\n\n")
+            device_path = os.path.join(sys_block_path, device)
             
-            for category, info in data.items():
-                if isinstance(info, dict):
-                    severity = info.get('severity', SEVERITY_INFO)
-                    category_name = info.get('category', category)
-                    
-                    f.write(f"\n[{severity}] {category_name}\n")
-                    f.write("-" * 70 + "\n")
-                    
-                    if 'data' in info and isinstance(info['data'], dict):
-                        for key, value in info['data'].items():
-                            if isinstance(value, (list, dict)):
-                                f.write(f"{key}:\n")
-                                f.write(f"  {json.dumps(value, indent=2)}\n")
-                            else:
-                                f.write(f"{key}: {value}\n")
+            # Get device size
+            size_file = os.path.join(device_path, 'size')
+            size_kb = 0
+            if os.path.exists(size_file):
+                size_str = read_file(size_file)
+                if size_str:
+                    size_kb = int(size_str) // 2  # Convert 512-byte sectors to KB
+            
+            # Convert to human readable
+            if size_kb > 1024 * 1024:
+                size_display = str(size_kb // (1024 * 1024)) + ' GB'
+            elif size_kb > 1024:
+                size_display = str(size_kb // 1024) + ' MB'
+            else:
+                size_display = str(size_kb) + ' KB'
+            
+            # Check if SSD or HDD
+            rota_file = os.path.join(device_path, 'queue', 'rotational')
+            disk_type = 'UNKNOWN'
+            if os.path.exists(rota_file):
+                rota = read_file(rota_file)
+                if rota == '0':
+                    disk_type = 'SSD'
+                elif rota == '1':
+                    disk_type = 'HDD'
+            
+            # Get model (if exists)
+            model = 'Virtual'
+            model_file = os.path.join(device_path, 'device', 'model')
+            if os.path.exists(model_file):
+                model = read_file(model_file)
+            
+            device_info = size_display + ' [' + disk_type + '] ' + model
+            data.append(['/dev/' + device, device_info])
         
-        print(f"\n{colorize('[SUCCESS]', COLOR_GREEN)} Data exported to: {colorize(filepath, COLOR_CYAN)}")
+        # Add partition info if verbosity >= 2
+        if verbosity >= 2:
+            for device in sorted(os.listdir(sys_block_path)):
+                device_path = os.path.join(sys_block_path, device)
+                
+                # Look for partitions
+                for entry in os.listdir(device_path):
+                    if entry.startswith(device) and entry != device:
+                        part_path = os.path.join(device_path, entry)
+                        size_file = os.path.join(part_path, 'size')
+                        if os.path.exists(size_file):
+                            size_str = read_file(size_file)
+                            if size_str:
+                                size_kb = int(size_str) // 2
+                                if size_kb > 1024:
+                                    size_display = str(size_kb // 1024) + ' MB'
+                                else:
+                                    size_display = str(size_kb) + ' KB'
+                                data.append(['   └─ ' + entry, size_display + ' partition'])
+    
     except Exception as e:
-        print(f"\n{colorize('[ERROR]', COLOR_RED)} Failed to export LOG: {str(e)}")
+        pass
+    
+    return data
 
+def get_pci_devices(verbosity):
+    """Retrieve PCI devices from /sys/bus/pci/devices/"""
+    data = []
+    
+    try:
+        pci_path = '/sys/bus/pci/devices/'
+        
+        if not os.path.exists(pci_path):
+            return data
+        
+        for device_dir in sorted(os.listdir(pci_path)):
+            device_path = os.path.join(pci_path, device_dir)
+            
+            # Read vendor and device ID
+            vendor_file = os.path.join(device_path, 'vendor')
+            device_file = os.path.join(device_path, 'device')
+            
+            if os.path.exists(vendor_file) and os.path.exists(device_file):
+                vendor_id = read_file(vendor_file)
+                device_id = read_file(device_file)
+                
+                if vendor_id and device_id:
+                    pci_id = device_dir
+                    info = vendor_id + ':' + device_id
+                    data.append([pci_id, info])
+    
+    except Exception as e:
+        pass
+    
+    return data
 
-##################
-# MAIN EXECUTION #
-##################
+def get_gpu_info(verbosity):
+    """Retrieve GPU information from /sys/bus/pci/"""
+    data = []
+    
+    try:
+        pci_path = '/sys/bus/pci/devices/'
+        
+        if not os.path.exists(pci_path):
+            return data
+        
+        for device_dir in sorted(os.listdir(pci_path)):
+            device_path = os.path.join(pci_path, device_dir)
+            class_file = os.path.join(device_path, 'class')
+            
+            if os.path.exists(class_file):
+                class_id = read_file(class_file)
+                if class_id:
+                    # Check for VGA (0x030000) or 3D (0x030100)
+                    if class_id.startswith('0x030'):
+                        vendor_file = os.path.join(device_path, 'vendor')
+                        device_file = os.path.join(device_path, 'device')
+                        
+                        if os.path.exists(vendor_file) and os.path.exists(device_file):
+                            vendor_id = read_file(vendor_file)
+                            device_id = read_file(device_file)
+                            data.append([device_dir, 'VGA: ' + vendor_id + ':' + device_id])
+    
+    except Exception as e:
+        pass
+    
+    return data
 
-def create_argument_parser():
-    """Create and configure argument parser."""
-    parser = argparse.ArgumentParser(
-        description='hardware_monitor.py - A Linux Hardware Monitoring Tool',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s --v
-  %(prog)s --vv --export-format=json
-  %(prog)s --vvv --export-format=log --path=/tmp/reports
-  %(prog)s --vv --export-format=csv --path=./output
-        """)
-    
-    parser.add_argument('--v', action='store_const', const=VERBOSITY_BASIC, 
-                       dest='verbosity',
-                       help='Basic verbosity (essential hardware info)')
-    parser.add_argument('--vv', action='store_const', const=VERBOSITY_DETAILED, 
-                       dest='verbosity',
-                       help='Detailed verbosity (includes additional hardware details)')
-    parser.add_argument('--vvv', action='store_const', const=VERBOSITY_FULL, 
-                       dest='verbosity',
-                       help='Full verbosity (comprehensive hardware analysis)')
-    parser.add_argument('--export-format', choices=['log', 'json', 'csv'],
-                       help='Export format (log/json/csv)')
-    parser.add_argument('--path', default='.',
-                       help='Output directory for exported files (default: current directory)')
-    parser.add_argument('--version', action='version', version=f'%(prog)s {VERSION}')
-    
-    return parser
+def export_to_json(all_data, filename='hardware_info.json'):
+    """Export hardware information to JSON format"""
+    try:
+        with open(filename, 'w') as f:
+            json.dump(all_data, f, indent=2)
+        print(color_text('[+] Data exported to: ' + filename, Colors.OKGREEN))
+    except Exception as e:
+        print(color_text('[-] Error exporting to JSON: ' + str(e), Colors.FAIL))
 
-def collect_all_hardware_info(verbosity):
-    """Collect all hardware information."""
-    collected_data = OrderedDict()
-    
-    sections = [
-        ("SYSTEM OVERVIEW", 'os', collect_os_information),
-        ("PROCESSOR INFORMATION", 'cpu', collect_cpu_information),
-        ("MEMORY INFORMATION", 'memory', collect_memory_information),
-        ("MOTHERBOARD INFORMATION", 'motherboard', collect_motherboard_information),
-        ("STORAGE INFORMATION", 'storage', collect_storage_information),
-        ("GRAPHICS INFORMATION", 'graphics', collect_graphics_information),
-        ("NETWORK INFORMATION", 'network', collect_network_information),
-        ("POWER SUPPLY INFORMATION", 'power', collect_power_information),
-        ("COOLING SYSTEM INFORMATION", 'cooling', collect_cooling_information),
-        ("PERIPHERALS INFORMATION", 'peripherals', collect_peripherals_information),
-        ("PCI DEVICES INFORMATION", 'pci', collect_pci_information),
-    ]
-    
-    for section_title, key, collector_func in sections:
-        print_section_header(section_title)
-        try:
-            collected_data[key] = collector_func(verbosity).to_dict()
-            print_info_table(collected_data[key]['data'], key.upper(), verbosity)
-        except Exception as e:
-            print(f"{colorize('[ERROR]', COLOR_RED)} Failed to collect {section_title}: {str(e)}")
-            collected_data[key] = {'category': key, 'severity': SEVERITY_CRITICAL, 'data': {'Error': str(e)}}
-    
-    return collected_data
+def export_to_csv(all_data, filename='hardware_info.csv'):
+    """Export hardware information to CSV format"""
+    try:
+        with open(filename, 'w', newline='') as f:
+            writer = csv.writer(f)
+            for section, items in all_data.items():
+                writer.writerow([section])
+                if isinstance(items, dict):
+                    for key, value in items.items():
+                        writer.writerow([key, value])
+                elif isinstance(items, list):
+                    for row in items:
+                        writer.writerow(row)
+                writer.writerow([])
+        print(color_text('[+] Data exported to: ' + filename, Colors.OKGREEN))
+    except Exception as e:
+        print(color_text('[-] Error exporting to CSV: ' + str(e), Colors.FAIL))
 
-def print_summary(collected_data):
-    """Print collection summary."""
-    print_section_header("COLLECTION SUMMARY", COLOR_GREEN)
-    
-    critical_count = sum(1 for v in collected_data.values() 
-                        if v.get('severity') == SEVERITY_CRITICAL)
-    warn_count = sum(1 for v in collected_data.values() 
-                    if v.get('severity') == SEVERITY_WARN)
-    
-    summary_data = [
-        ["Categories Collected", str(len(collected_data)), "OK"],
-        ["Critical Issues", str(critical_count), 
-         "CRITICAL" if critical_count > 0 else "OK"],
-        ["Warnings", str(warn_count), 
-         "WARNING" if warn_count > 0 else "OK"],
-        ["Overall Status", 
-         "HEALTHY" if critical_count == 0 else "ISSUES DETECTED",
-         "OK" if critical_count == 0 else "WARNING"]
-    ]
-    
-    summary_colors = []
-    for row in summary_data:
-        colors = [COLOR_BLUE, COLOR_WHITE]
-        if "CRITICAL" in row[2]:
-            colors.append(COLOR_RED)
-        elif "WARNING" in row[2]:
-            colors.append(COLOR_YELLOW)
-        else:
-            colors.append(COLOR_GREEN)
-        summary_colors.append(colors)
-    
-    print_formatted_table(["Metric", "Value", "Status"], summary_data, 
-                         COLOR_GREEN, summary_colors, max_col_width=30)
-
-def export_data(collected_data, export_format, output_path):
-    """Export collected data to specified format."""
-    # Ensure output directory exists
-    if not os.path.exists(output_path):
-        try:
-            os.makedirs(output_path)
-        except Exception as e:
-            print(f"\n{colorize('[ERROR]', COLOR_RED)} Failed to create output directory: {str(e)}")
-            sys.exit(1)
-    
-    # Generate filename
-    timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
-    filename = f"hardware_monitor_{timestamp}.{export_format}"
-    filepath = os.path.join(output_path, filename)
-    
-    # Export based on format
-    export_functions = {
-        'json': export_to_json,
-        'csv': export_to_csv,
-        'log': export_to_log
-    }
-    
-    export_func = export_functions.get(export_format)
-    if export_func:
-        export_func(collected_data, filepath)
+def export_to_txt(all_data, filename='hardware_info.txt'):
+    """Export hardware information to TXT format"""
+    try:
+        with open(filename, 'w') as f:
+            for section, items in all_data.items():
+                f.write('\n' + '='*80 + '\n')
+                f.write(section + '\n')
+                f.write('='*80 + '\n\n')
+                if isinstance(items, dict):
+                    for key, value in items.items():
+                        f.write('{}: {}\n'.format(key, value))
+                elif isinstance(items, list):
+                    for row in items:
+                        f.write(' | '.join(str(x) for x in row) + '\n')
+                f.write('\n')
+        print(color_text('[+] Data exported to: ' + filename, Colors.OKGREEN))
+    except Exception as e:
+        print(color_text('[-] Error exporting to TXT: ' + str(e), Colors.FAIL))
 
 def main():
-    """Main execution function."""
-    parser = create_argument_parser()
+    """Main function"""
+    parser = argparse.ArgumentParser(
+        description='Hardware Fetcher - VM Hardware Analysis from /proc and /sys',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''VERBOSITY LEVELS:
+  -v     (Level 1): Basic hardware overview
+  -vv    (Level 2): Extended information with detailed specs
+  -vvv   (Level 3): Deep analysis with all identifiers
+
+EXPORT OPTIONS:
+  --export=json    Export data to JSON format
+  --export=csv     Export data to CSV format
+  --export=txt     Export data to TXT format
+
+EXAMPLES:
+  python3 hardware_fetcher.py -v
+  python3 hardware_fetcher.py -vv --export=json
+  python3 hardware_fetcher.py -vvv --export=csv --dry-run=false
+        '''
+    )
+    
+    parser.add_argument('--dry-run', 
+                       type=lambda x: x.lower() == 'true',
+                       default=False,
+                       help='Run in dry-run mode without exporting (default: false)')
+    
+    parser.add_argument('-v', '--verbose', 
+                       action='count', 
+                       default=1,
+                       help='Increase verbosity: -v (basic), -vv (extended), -vvv (deep)')
+    
+    parser.add_argument('--export', 
+                       choices=['json', 'csv', 'txt'],
+                       default=None,
+                       help='Export format: json, csv, or txt')
+    
     args = parser.parse_args()
     
-    # Set default verbosity
-    verbosity = args.verbosity if args.verbosity else VERBOSITY_BASIC
+    # Validate verbosity
+    if args.verbose > 3:
+        args.verbose = 3
     
-    # Print header
-    print_main_header()
-    if os.geteuid() != 0:
-        print(f"\n{colorize('[WARNING]', COLOR_YELLOW)} Running as non-root user. Some detailed hardware information may require root privileges.")
-    print(f"\nVerbosity Level: {colorize(['Basic', 'Detailed', 'Full'][verbosity - 1], COLOR_YELLOW)}")
-    print(f"Timestamp: {colorize(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), COLOR_GREEN)}\n")
+    # Main header
+    print_main_header('VM HARDWARE COMPONENTS FETCHER')
     
-    # Collect hardware information
-    try:
-        collected_data = collect_all_hardware_info(verbosity)
-    except KeyboardInterrupt:
-        print(f"\n\n{colorize('[WARNING]', COLOR_YELLOW)} Collection interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\n\n{colorize('[ERROR]', COLOR_RED)} Error during collection: {str(e)}")
-        sys.exit(1)
+    all_data = OrderedDict()
     
-    # Print summary
-    print_summary(collected_data)
+    # 1. CPU COMPONENTS
+    print_section_header('CPU HARDWARE COMPONENTS')
+    cpu_data = get_cpu_components(args.verbose)
+    all_data['CPU Components'] = cpu_data
+    cpu_table = [[k, v] for k, v in cpu_data.items()]
+    print_table(cpu_table)
     
-    # Export if requested
-    if args.export_format:
-        export_data(collected_data, args.export_format, args.path)
+    # 2. RAM COMPONENTS
+    print_section_header('RAM HARDWARE COMPONENTS')
+    ram_data = get_ram_components(args.verbose)
+    all_data['RAM Components'] = ram_data
+    ram_table = [[k, v] for k, v in ram_data.items()]
+    print_table(ram_table)
     
-    # Print footer
-    print_main_footer()
+    # 3. MOTHERBOARD COMPONENTS
+    print_section_header('MOTHERBOARD HARDWARE')
+    mobo_data = get_motherboard_info(args.verbose)
+    all_data['Motherboard'] = mobo_data
+    mobo_table = [[k, v] for k, v in mobo_data.items()]
+    print_table(mobo_table)
+    
+    # 4. STORAGE COMPONENTS
+    print_section_header('STORAGE HARDWARE COMPONENTS')
+    storage_data = get_storage_components(args.verbose)
+    all_data['Storage Devices'] = storage_data
+    if storage_data:
+        print_table(storage_data)
+    else:
+        print(color_text('No storage devices found\n', Colors.WARNING))
+    
+    # 5. GPU COMPONENTS
+    print_section_header('GPU HARDWARE COMPONENTS')
+    gpu_data = get_gpu_info(args.verbose)
+    all_data['GPU Devices'] = gpu_data
+    if gpu_data:
+        print_table(gpu_data)
+    else:
+        print(color_text('No GPU devices detected\n', Colors.WARNING))
+    
+    # 6. PCI DEVICES
+    if args.verbose >= 2:
+        print_section_header('PCI HARDWARE DEVICES')
+        pci_data = get_pci_devices(args.verbose)
+        all_data['PCI Devices'] = pci_data
+        if pci_data:
+            print_table(pci_data)
+        else:
+            print(color_text('No PCI devices found\n', Colors.WARNING))
+    
+    # Export data if not in dry-run mode
+    if not args.dry_run:
+        if args.export == 'json':
+            export_to_json(all_data)
+        elif args.export == 'csv':
+            export_to_csv(all_data)
+        elif args.export == 'txt':
+            export_to_txt(all_data)
+    
+    print(color_text('=' * 80 + '\n', Colors.HEADER))
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(color_text('\n\n[-] Script interrupted by user', Colors.FAIL))
+        sys.exit(1)
+    except Exception as e:
+        print(color_text('\n[-] Error: ' + str(e), Colors.FAIL))
+        sys.exit(1)
