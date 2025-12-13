@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 ######################################################################
-#                  HARDWARE FETCHER v0.0.1                           #
+#                  HARDWARE FETCHER v1.0.0                           #
 # Advanced Hardware Detection and Analysis for Linux Systems         #
 #                                                                    #
 # A professional-grade Python module for comprehensive hardware      #
