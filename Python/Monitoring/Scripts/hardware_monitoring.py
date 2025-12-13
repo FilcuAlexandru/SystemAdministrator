@@ -36,10 +36,6 @@
 # Repository: https://github.com/yourusername/hardware-fetcher       #
 ######################################################################
 
-######################
-# IMPORT HANDY TOOLS #
-######################
-
 import sys
 import argparse
 import json
@@ -50,39 +46,23 @@ import re
 import os
 from datetime import datetime
 
+
 class Colors:
     """ANSI color codes for terminal output styling"""
-    HEADER = '\033[95m'
-    OKBLUE = '\033[94m'
-    OKGREEN = '\033[92m'
-    WARNING = '\033[93m'
-    FAIL = '\033[91m'
-    ENDC = '\033[0m'
-    BOLD = '\033[1m'
+    HEADER = '\033[95m'      # Purple - Headers and section titles
+    OKBLUE = '\033[94m'      # Blue - Table borders and formatting
+    OKGREEN = '\033[92m'     # Green - Success messages and positive status
+    WARNING = '\033[93m'     # Yellow - Warnings and missing components
+    FAIL = '\033[91m'        # Red - Errors and failures
+    ENDC = '\033[0m'         # Reset - End of color formatting
+    BOLD = '\033[1m'         # Bold - Text emphasis
+
 
 class HardwareFetcher:
-    """
-    Comprehensive hardware information gatherer for Linux systems.
-    
-    Collects detailed information about CPU, RAM, motherboard, storage devices,
-    GPUs, and PCI devices using both system commands and kernel interfaces.
-    Supports multiple verbosity levels and export formats.
-    
-    Attributes:
-        verbosity (int): Detail level (1-3)
-        dry_run (bool): Test mode without file operations
-        export_dir (str): Directory for export files
-    """
+    """Comprehensive hardware information gatherer for Linux systems"""
     
     def __init__(self, verbosity=1, dry_run=False, export_directory='.'):
-        """
-        Initialize HardwareFetcher with configuration parameters.
-        
-        Args:
-            verbosity (int): Detail level - 1=basic, 2=extended, 3=deep (default: 1)
-            dry_run (bool): If True, run in test mode without file writes (default: False)
-            export_directory (str): Directory path for exported files (default: current)
-        """
+        """Initialize HardwareFetcher with configuration"""
         self.verbosity = min(verbosity, 3)
         self.dry_run = dry_run
         self.export_dir = export_directory
@@ -90,43 +70,18 @@ class HardwareFetcher:
 
     @staticmethod
     def color_text(text, color):
-        """
-        Apply ANSI color codes to text for terminal output.
-        
-        Args:
-            text (str): Text to colorize
-            color (str): ANSI color code from Colors class
-            
-        Returns:
-            str: Colored text string
-        """
+        """Apply ANSI color codes to text for terminal output"""
         return color + str(text) + Colors.ENDC
 
     @staticmethod
     def strip_ansi(text):
-        """
-        Remove ANSI color codes from text for width calculations.
-        
-        Args:
-            text (str): Text possibly containing ANSI codes
-            
-        Returns:
-            str: Text without ANSI codes
-        """
+        """Remove ANSI color codes from text for width calculations"""
         ansi_escape = re.compile(r'\033\[[0-9;]*m')
         return ansi_escape.sub('', str(text))
 
     @staticmethod
     def run_command(command):
-        """
-        Execute shell command safely and return output.
-        
-        Args:
-            command (str): Shell command to execute
-            
-        Returns:
-            str or None: Command output if successful, None on failure
-        """
+        """Execute shell command safely and return output"""
         try:
             result = subprocess.check_output(command, shell=True, stderr=subprocess.DEVNULL, universal_newlines=True)
             return result.strip()
@@ -135,28 +90,12 @@ class HardwareFetcher:
 
     @staticmethod
     def command_exists(command):
-        """
-        Check if a command exists in system PATH.
-        
-        Args:
-            command (str): Command name to check
-            
-        Returns:
-            bool: True if command exists, False otherwise
-        """
+        """Check if a command exists in system PATH"""
         return HardwareFetcher.run_command('which ' + command) is not None
 
     @staticmethod
     def read_file(filepath):
-        """
-        Read file content safely with error handling.
-        
-        Args:
-            filepath (str): Path to file to read
-            
-        Returns:
-            str or None: File content if readable, None on error
-        """
+        """Read file content safely with error handling"""
         try:
             with open(filepath, 'r') as f:
                 return f.read().strip()
@@ -165,19 +104,7 @@ class HardwareFetcher:
 
     @staticmethod
     def get_value(cmd, fallback_file=None):
-        """
-        Get value from command with automatic fallback to file.
-        
-        Attempts to execute command first, then falls back to reading file.
-        Useful for hybrid approach combining commands and kernel interfaces.
-        
-        Args:
-            cmd (str or None): Shell command to execute
-            fallback_file (str or None): File path to read if command fails
-            
-        Returns:
-            str: Value from command or file, 'N/A' if both fail
-        """
+        """Get value from command with automatic fallback to file"""
         if cmd:
             result = HardwareFetcher.run_command(cmd)
             if result:
@@ -189,12 +116,7 @@ class HardwareFetcher:
         return 'N/A'
 
     def print_header(self, title):
-        """
-        Display formatted section header with hash borders.
-        
-        Args:
-            title (str): Section title to display
-        """
+        """Display formatted section header with hash borders"""
         border = '#' * 80
         padding = (80 - len(title) - 8) // 2
         centered = '### ' + (' ' * padding) + title + (' ' * padding) + ' ###'
@@ -203,15 +125,7 @@ class HardwareFetcher:
         print(self.color_text(border + '\n', Colors.HEADER))
 
     def print_table(self, data):
-        """
-        Print formatted table with aligned columns and separators.
-        
-        Creates a professional-looking table with automatic column sizing,
-        text truncation for long values, and horizontal separators between rows.
-        
-        Args:
-            data (list): List of [key, value] pairs to display
-        """
+        """Print formatted table with aligned columns and separators"""
         if not data:
             print(self.color_text("No data available\n", Colors.WARNING))
             return
@@ -248,14 +162,7 @@ class HardwareFetcher:
         print(self.color_text(bottom_border + '\n', Colors.OKBLUE))
 
     def check_system_compatibility(self):
-        """
-        Check system compatibility for hardware detection.
-        
-        Verifies presence of required kernel interfaces and tools.
-        
-        Returns:
-            dict: Compatibility status for each required component
-        """
+        """Check system compatibility for hardware detection"""
         checks = {
             'procfs': os.path.exists('/proc/cpuinfo'),
             'sysfs': os.path.exists('/sys/devices/system/cpu/'),
@@ -267,14 +174,7 @@ class HardwareFetcher:
         return checks
 
     def print_compatibility_check(self):
-        """
-        Display system compatibility check results in formatted table.
-        
-        Shows availability of each hardware detection tool/interface.
-        
-        Returns:
-            bool: True if system is compatible (has /proc/cpuinfo), False otherwise
-        """
+        """Display system compatibility check results"""
         checks = self.check_system_compatibility()
         self.print_header('SYSTEM COMPATIBILITY CHECK')
         
@@ -292,15 +192,7 @@ class HardwareFetcher:
         return True
 
     def get_cpu_components(self):
-        """
-        Retrieve detailed CPU hardware information from /proc and system commands.
-        
-        Gathers: CPU count, model, vendor, cache, frequency, microcode,
-        CPU flags (instruction set extensions), and known vulnerabilities.
-        
-        Returns:
-            OrderedDict: CPU hardware specifications
-        """
+        """Retrieve detailed CPU hardware information"""
         data = OrderedDict()
         
         try:
@@ -328,8 +220,10 @@ class HardwareFetcher:
                 data['Min Frequency (MHz)'] = self.get_value(None, '/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq')
                 
                 # Virtualization support
-                data['VMX Support (Intel)'] = 'Yes' if 'vmx' in self.get_value("grep -m 1 'flags' /proc/cpuinfo | cut -d: -f2 | xargs") else 'No'
-                data['SVM Support (AMD)'] = 'Yes' if 'svm' in self.get_value("grep -m 1 'flags' /proc/cpuinfo | cut -d: -f2 | xargs") else 'No'
+                flags_cmd = "grep -m 1 'flags' /proc/cpuinfo | cut -d: -f2 | xargs"
+                flags_output = self.get_value(flags_cmd)
+                data['VMX Support (Intel)'] = 'Yes' if 'vmx' in flags_output else 'No'
+                data['SVM Support (AMD)'] = 'Yes' if 'svm' in flags_output else 'No'
             
             if self.verbosity >= 3:
                 # Level 3: Deep CPU analysis
@@ -359,15 +253,7 @@ class HardwareFetcher:
         return data
 
     def get_ram_components(self):
-        """
-        Retrieve detailed RAM hardware information from /proc and DMI.
-        
-        Gathers: Total RAM, available RAM, RAM modules, speed, type, ECC support,
-        manufacturer info, and memory timing details.
-        
-        Returns:
-            OrderedDict: RAM hardware specifications
-        """
+        """Retrieve detailed RAM hardware information"""
         data = OrderedDict()
         
         try:
@@ -413,15 +299,7 @@ class HardwareFetcher:
         return data
 
     def get_motherboard_info(self):
-        """
-        Retrieve motherboard and system information from DMI and kernel interfaces.
-        
-        Gathers: Motherboard manufacturer/model, BIOS vendor/version/date, 
-        system product, chassis type, serial numbers, and SKU information.
-        
-        Returns:
-            OrderedDict: Motherboard hardware specifications
-        """
+        """Retrieve motherboard and system information"""
         data = OrderedDict()
         
         try:
@@ -457,15 +335,7 @@ class HardwareFetcher:
         return data
 
     def get_storage_components(self):
-        """
-        Retrieve storage device information from /sys/block and lsblk.
-        
-        Gathers: Storage devices (HDDs/SSDs), sizes, types, partitions,
-        and SMART health status if available.
-        
-        Returns:
-            list: List of [device_name, device_info] pairs
-        """
+        """Retrieve storage device information"""
         data = []
         
         try:
@@ -527,14 +397,7 @@ class HardwareFetcher:
         return data
 
     def get_pci_devices(self):
-        """
-        Retrieve PCI device information from lspci and /sys/bus/pci.
-        
-        Gathers: All PCI devices with vendor and device IDs.
-        
-        Returns:
-            list: List of [pci_slot, device_info] pairs
-        """
+        """Retrieve PCI device information"""
         data = []
         
         try:
@@ -565,14 +428,7 @@ class HardwareFetcher:
         return data
 
     def get_gpu_info(self):
-        """
-        Retrieve GPU device information from lspci.
-        
-        Identifies VGA and 3D graphics controllers on the system.
-        
-        Returns:
-            list: List of [gpu_slot, gpu_info] pairs
-        """
+        """Retrieve GPU device information"""
         data = []
         
         try:
@@ -591,18 +447,7 @@ class HardwareFetcher:
         return data
 
     def export_to_json(self, filepath):
-        """
-        Export collected hardware data to JSON file.
-        
-        Creates formatted JSON output with proper indentation.
-        In dry-run mode, displays what would be exported without writing.
-        
-        Args:
-            filepath (str): Target file path for JSON export
-            
-        Returns:
-            bool: True if successful, False on error
-        """
+        """Export hardware data to JSON file"""
         try:
             if self.dry_run:
                 print(self.color_text(f'[DRY-RUN] Would export JSON to: {filepath}', Colors.OKBLUE))
@@ -618,18 +463,7 @@ class HardwareFetcher:
             return False
 
     def export_to_csv(self, filepath):
-        """
-        Export collected hardware data to CSV file.
-        
-        Creates structured CSV output suitable for spreadsheet applications.
-        In dry-run mode, displays what would be exported without writing.
-        
-        Args:
-            filepath (str): Target file path for CSV export
-            
-        Returns:
-            bool: True if successful, False on error
-        """
+        """Export hardware data to CSV file"""
         try:
             if self.dry_run:
                 print(self.color_text(f'[DRY-RUN] Would export CSV to: {filepath}', Colors.OKBLUE))
@@ -654,18 +488,7 @@ class HardwareFetcher:
             return False
 
     def export_to_txt(self, filepath):
-        """
-        Export collected hardware data to TXT file.
-        
-        Creates human-readable text output with formatted sections.
-        In dry-run mode, displays what would be exported without writing.
-        
-        Args:
-            filepath (str): Target file path for TXT export
-            
-        Returns:
-            bool: True if successful, False on error
-        """
+        """Export hardware data to TXT file"""
         try:
             if self.dry_run:
                 print(self.color_text(f'[DRY-RUN] Would export TXT to: {filepath}', Colors.OKBLUE))
@@ -693,12 +516,7 @@ class HardwareFetcher:
             return False
 
     def collect_all_data(self):
-        """
-        Collect all hardware information from all sources.
-        
-        Executes all hardware detection methods and stores results.
-        Should be called before exporting or displaying data.
-        """
+        """Collect all hardware information from all sources"""
         self.hardware_data['CPU Components'] = self.get_cpu_components()
         self.hardware_data['RAM Components'] = self.get_ram_components()
         self.hardware_data['Motherboard'] = self.get_motherboard_info()
@@ -708,11 +526,7 @@ class HardwareFetcher:
             self.hardware_data['PCI Devices'] = self.get_pci_devices()
 
     def display_all_data(self):
-        """
-        Display all collected hardware information in formatted tables.
-        
-        Prints data to console with proper formatting and colors.
-        """
+        """Display all collected hardware information in formatted tables"""
         print(self.color_text('\n' + '=' * 80, Colors.HEADER))
         print(self.color_text('VM HARDWARE COMPONENTS FETCHER'.center(80), Colors.HEADER))
         print(self.color_text('=' * 80 + '\n', Colors.HEADER))
@@ -757,15 +571,7 @@ class HardwareFetcher:
         print(self.color_text('=' * 80 + '\n', Colors.HEADER))
 
     def export(self, export_format):
-        """
-        Export collected hardware data in specified format.
-        
-        Args:
-            export_format (str): Export format - 'json', 'csv', or 'txt'
-            
-        Returns:
-            bool: True if export successful, False otherwise
-        """
+        """Export collected hardware data in specified format"""
         if not self.hardware_data:
             print(self.color_text('No data to export. Call collect_all_data() first.', Colors.WARNING))
             return False
@@ -785,18 +591,7 @@ class HardwareFetcher:
         return False
 
     def run(self, export_format=None):
-        """
-        Execute full hardware detection workflow.
-        
-        Performs compatibility check, collects data, displays it,
-        and optionally exports to file.
-        
-        Args:
-            export_format (str or None): Export format if needed
-            
-        Returns:
-            bool: True if run successful, False otherwise
-        """
+        """Execute full hardware detection workflow"""
         # Compatibility check for dry-run
         if self.dry_run:
             is_compatible = self.print_compatibility_check()
@@ -814,12 +609,7 @@ class HardwareFetcher:
 
 
 def main():
-    """
-    Command-line interface for HardwareFetcher.
-    
-    Parses arguments and executes hardware detection workflow.
-    Can be run standalone or imported as module class.
-    """
+    """Command-line interface for HardwareFetcher"""
     parser = argparse.ArgumentParser(
         description='Hardware Fetcher - Advanced VM Hardware Analysis',
         formatter_class=argparse.RawDescriptionHelpFormatter,
